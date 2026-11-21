@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ */
+/*  Design tokens — three themes via CSS custom properties            */
+/* ------------------------------------------------------------------ */
+:root {
+  --accent: #d9a441;
+  --accent-soft: rgba(217, 164, 65, 0.18);
+
+  /* Light (default) */
+  --bg: #f6f5f2;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --border: rgba(20, 18, 14, 0.10);
+  --text: #1c1a17;
+  --text-muted: #6b675f;
+  --shadow: 0 1px 2px rgba(20, 18, 14, 0.06), 0 8px 24px rgba(20, 18, 14, 0.08);
+}
+
+[data-theme="dark"] {
+  --bg: #0f1115;
+  --bg-elevated: #171a21;
+  --surface: #1b1e26;
+  --border: rgba(255, 255, 255, 0.09);
+  --text: #ecebe6;
+  --text-muted: #9a978f;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="reading"] {
+  --bg: #efe6d3;
+  --bg-elevated: #f7efdd;
+  --surface: #f4ecd8;
+  --border: rgba(92, 64, 31, 0.16);
+  --text: #4a3521;
+  --text-muted: #8a6d4b;
+  --shadow: 0 1px 2px rgba(92, 64, 31, 0.10), 0 8px 24px rgba(92, 64, 31, 0.12);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Base                                                              */
+/* ------------------------------------------------------------------ */
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  transition: background-color 200ms ease, color 200ms ease;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Reading content uses a serif face */
+.font-reading {
+  font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Bible chapters — uniform per-chapter breaks inside a whole-book    */
+/*  page. The backend splits each book into <section class="bible-     */
+/*  chapter"> blocks with an h2 title; we style the break + heading so */
+/*  long books read in clean, scannable chapters.                      */
+/* ------------------------------------------------------------------ */
+.bible-chapter {
+  margin: 0 0 1.75em;
+}
+.bible-chapter:last-child {
+  margin-bottom: 0;
+}
+.bible-chapter-title {
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 0.82em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 1.5em 0 0.7em;
+  padding-bottom: 0.35em;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page slide — a clean horizontal e-reader transition.              */
+/*                                                                     */
+/*  While a turn is in flight we render .slide-viewport (an opaque     */
+/*  overlay pinned to the visible area) containing .slide-track, two   */
+/*  full pages side by side. The track translates horizontally as one   */
+/*  rigid unit: for "next" it moves left (old page exits left, new     */
+/*  enters from right); for "prev" it starts at -50% and eases to 0    */
+/*  (previous enters from left, old exits right). One motion direction, */
+/*  zero vertical component — no warping, no up/down jump.             */
+/* ------------------------------------------------------------------ */
+.page-stage {
+  position: relative;
+}
+.slide-viewport {
+  position: absolute;
+  inset: 0; /* pinned to the visible area, independent of scroll offset */
+  overflow: hidden;
+  z-index: 10;
+  pointer-events: none;
+  background: var(--bg); /* opaque so the base page never peeks through */
+}
+.slide-track {
+  display: flex;
+  width: 200%;
+  height: 100%;
+  will-change: transform;
+}
+.slide-page {
+  width: 50%;              /* one full reading column, = viewport width */
+  min-height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+/* The track is two pages wide (200%), so one page = -50%, not -100%. */
+@keyframes slideNext {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@keyframes slidePrev {
+  from { transform: translateX(-50%); }
+  to   { transform: translateX(0); }
+}
+.slide-next { animation: slideNext 380ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.slide-prev { animation: slidePrev 380ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+
+/* Thin custom scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+/* Smooth color transitions on themed surfaces */
+.themed-surface {
+  transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
+}
