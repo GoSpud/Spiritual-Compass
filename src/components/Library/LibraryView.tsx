@@ -5,6 +5,7 @@ import type { BookWithProgress, Category, SearchHit } from "../../types";
 import { CATEGORIES } from "../../types";
 import { BookCard } from "./BookCard";
 import { ImportDialog } from "./ImportDialog";
+import { useTheme } from "../../theme/ThemeProvider";
 
 type Filter = "All Books" | Category;
 
@@ -14,6 +15,7 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
   onOpenBook: (b: BookWithProgress) => void;
   onOpenAt?: (b: BookWithProgress, chapterIndex: number) => void;
 }) {
+  const { theme, setTheme } = useTheme();
   const [books, setBooks] = useState<BookWithProgress[]>([]);
   const [filter, setFilter] = useState<Filter>("All Books");
   const [search, setSearch] = useState("");
@@ -92,7 +94,7 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
   return (
     <div className="flex h-full">
       {/* Sidebar */}
-      <aside className="w-64 shrink-0 border-r themed-surface" style={{ borderColor: "var(--border)" }}>
+      <aside className="w-64 shrink-0 border-r themed-surface flex flex-col" style={{ borderColor: "var(--border)" }}>
         <div className="p-4 space-y-1">
           {FILTERS.map((f) => (
             <button
@@ -108,7 +110,7 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
           ))}
         </div>
 
-        <div className="px-4 pb-4">
+        <div className="px-4 pb-6">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -117,6 +119,17 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
             style={{ borderColor: "var(--border)", background: "var(--bg-elevated)" }}
           />
         </div>
+
+        <footer className="mt-auto px-4 pb-4 pt-6 shrink-0">
+          <button
+            onClick={() => { const themes = ["light", "dark", "reading"] as const; setTheme(themes[(themes.indexOf(theme) + 1) % 3]!); }}
+            className="rounded-lg px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-80"
+            style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+            title="Cycle theme (Light / Dark / Reading)"
+          >
+            {theme === "light" ? "☀ Light" : theme === "dark" ? "🌙 Dark" : "📜 Reading"}
+          </button>
+        </footer>
       </aside>
 
       {/* Main */}
@@ -133,7 +146,7 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
           </button>
         </header>
 
-        <div className="px-6 pb-8">
+        <div className="px-6 pb-2">
           {isSearching ? (
             hits === null ? (
               <p className="text-sm py-10 text-center" style={{ color: "var(--text-muted)" }}>Searching…</p>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { BookWithProgress, ReadingProgress } from "../../types";
 import { useTheme } from "../../theme/ThemeProvider";
+import { TEXT_COLOR_ORDER } from "../../theme/ThemeProvider";
 import type { ThemeName } from "../../theme/ThemeProvider";
 import { BookmarkDrawer } from "./BookmarkDrawer";
 import { GoToDrawer } from "./GoToDrawer";
@@ -21,13 +22,18 @@ export function ReaderView({ book, initialChapter, onBack }: {
   initialChapter?: number | null;
   onBack: () => void;
 }) {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, textColor, setTextColor } = useTheme();
 
   const [chapters, setChapters] = useState<ChapterInfo[]>([]);
   const [chapterIndex, setChapterIndex] = useState(0);
   const [html, setHtml] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const cycleTextColor = () => {
+    const idx = TEXT_COLOR_ORDER.indexOf(textColor);
+    setTextColor(TEXT_COLOR_ORDER[(idx + 1) % TEXT_COLOR_ORDER.length]);
+  };
 
   // Reader settings (persisted via settings table).
   const [fontSize, setFontSize] = useState(18);
@@ -39,7 +45,10 @@ export function ReaderView({ book, initialChapter, onBack }: {
   // Verse to scroll to once the current chapter HTML is in the DOM.
   const [pendingVerse, setPendingVerse] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const restoredRef = useRef(false);
+  const restoreDoneRef = useRef(false);
+  // Saved position from the mount effect, applied by the restore effect once
+  // the page is rendered — avoids a second get_progress round-trip.
+  const pendingRestoreRef = useRef<{ chapterIndex: number; scrollOffset: number } | null>(null);
 
   // Drag-to-flip: a horizontal swipe turns the page (like turning a book page).
   const dragStart = useRef<{ x: number; y: number } | null>(null);
@@ -77,6 +86,10 @@ export function ReaderView({ book, initialChapter, onBack }: {
         const start = initialChapter != null
           ? Math.min(initialChapter, ch.length - 1)
           : progress ? Math.min(progress.chapter_index, ch.length - 1) : 0;
+        // Remember the saved position so the restore effect below can scroll to it.
+        pendingRestoreRef.current = initialChapter != null || !progress
+          ? null
+          : { chapterIndex: start, scrollOffset: progress.scroll_offset };
         setChapterIndex(start);
       } catch (e) {
         console.error(e);
@@ -90,7 +103,7 @@ export function ReaderView({ book, initialChapter, onBack }: {
   // Mouse back button (button 4) returns to the library/menu.
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
-      if (e.button === 3) onBack(); // browser/mouse "back" button
+      if (e.button === 3) leave(); // browser/mouse "back" button
     }
     window.addEventListener("mousedown", onMouseDown);
     return () => window.removeEventListener("mousedown", onMouseDown);
@@ -131,18 +144,18 @@ export function ReaderView({ book, initialChapter, onBack }: {
     }
   }
 
-  // Restore scroll offset after the first chapter render.
+  // Restore the saved scroll offset after the first chapter renders.
   useEffect(() => {
-    if (restoredRef.current || loading) return;
-    restoredRef.current = true;
-    invoke<ReadingProgress | null>("get_progress", { bookId: book.id }).then((p) => {
-      if (!p || !scrollRef.current) return;
-      const el = scrollRef.current;
-      // Approximate restore: place the saved fraction of the way down.
-      const max = Math.max(0, el.scrollHeight - el.clientHeight);
-      el.scrollTop = p.scroll_offset * max;
-    }).catch(() => {});
-  }, [loading, book.id]);
+    if (restoreDoneRef.current || loading) return;
+    const restore = pendingRestoreRef.current;
+    if (!restore) return;
+    if (restore.chapterIndex !== chapterIndex) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    restoreDoneRef.current = true;
+    const max = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTop = restore.scrollOffset * max;
+  }, [loading, chapterIndex, book.id]);
 
   // Persist reader settings.
   useEffect(() => { invoke("set_setting", { key: "fontSize", value: String(fontSize) }).catch(() => {}); }, [fontSize]);
@@ -161,14 +174,18 @@ export function ReaderView({ book, initialChapter, onBack }: {
     return Math.min(1, Math.max(0, el.scrollTop / max));
   }, []);
 
+  // Keep a ref to the latest save fn so every save path (autosave interval,
+  // explicit leave) uses the current position, not a stale closure.
+  const saveRef = useRef(saveProgress);
+  saveRef.current = saveProgress;
+  const saveProgressNow = useCallback(() => { saveRef.current(); }, []);
+
   // Autosave progress every ~5s while reading.
   useEffect(() => {
     if (chapters.length === 0) return;
-    const id = setInterval(() => {
-      saveProgress();
-    }, 5000);
+    const id = setInterval(() => saveRef.current(), 5000);
     return () => clearInterval(id);
-  });
+  }, [chapters.length]);
 
   function saveProgress() {
     const total = chapters.length || 1;
@@ -181,11 +198,11 @@ export function ReaderView({ book, initialChapter, onBack }: {
     }).catch(() => {});
   }
 
-  // Keep a ref to the latest save fn so unmount saves the *current* position
-  // (a plain closure would capture stale state from mount).
-  const saveRef = useRef(saveProgress);
-  saveRef.current = saveProgress;
-  useEffect(() => () => { saveRef.current(); }, []);
+  // Explicit leave: persist the current position, then go back.
+  function leave() {
+    saveProgressNow();
+    onBack();
+  }
 
   async function go(delta: number) {
     const next = Math.min(chapters.length - 1, Math.max(0, chapterIndex + delta));
@@ -292,7 +309,7 @@ export function ReaderView({ book, initialChapter, onBack }: {
         className="flex items-center justify-between px-4 py-2.5 border-b themed-surface shrink-0"
         style={{ borderColor: "var(--border)", background: "var(--bg-elevated)" }}
       >
-        <button onClick={onBack} className="text-sm flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+        <button onClick={leave} className="text-sm flex items-center gap-1.5 hover:opacity-80 transition-opacity">
           ← Library
         </button>
         <div className="flex-1 text-center px-4 min-w-0">
@@ -379,6 +396,7 @@ export function ReaderView({ book, initialChapter, onBack }: {
           <ToolButton label="Decrease font size" disabled={fontSize <= FONT_SIZES[0]} onClick={() => setFontSize((s) => Math.max(FONT_SIZES[0], s - 2))}>A−</ToolButton>
           <ToolButton label="Increase font size" disabled={fontSize >= FONT_SIZES[FONT_SIZES.length - 1]} onClick={() => setFontSize((s) => Math.min(FONT_SIZES[FONT_SIZES.length - 1], s + 2))}>A+</ToolButton>
           <ToolButton label="Cycle line spacing" onClick={() => setLineHeight(LINE_HEIGHTS[(LINE_HEIGHTS.indexOf(lineHeight) + 1) % LINE_HEIGHTS.length])}>¶</ToolButton>
+          <ToolButton label={`Text color: ${textColor}`} onClick={cycleTextColor}>A▾</ToolButton>
         </div>
 
         <button
