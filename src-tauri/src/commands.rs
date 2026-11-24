@@ -2,6 +2,7 @@
 
 use std::cmp::Ordering;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 
 use tauri::State;
@@ -86,11 +87,45 @@ pub struct BookmarkRow {
 }
 
 #[derive(Serialize)]
+pub struct HighlightRow {
+    pub id: i64,
+    pub book_id: i64,
+    pub chapter_index: i32,
+    pub scroll_offset: f64,
+    pub text: String,
+    pub verse_number: Option<i32>,
+    pub created_at: String,
+}
+
+#[derive(Serialize)]
+pub struct NoteRow {
+    pub id: i64,
+    pub book_id: i64,
+    pub chapter_index: i32,
+    pub scroll_offset: f64,
+    pub text: String,
+    pub verse_number: Option<i32>,
+    pub created_at: String,
+}
+
+#[derive(Serialize)]
 pub struct ImportResult {
     pub id: i64,
     pub title: String,
     pub author: String,
     pub category: String,
+}
+
+/// One deterministic verse to feature on the library's daily card.
+#[derive(Serialize)]
+pub struct DailyVerse {
+    pub book_id: i64,
+    pub book_title: String,
+    pub book_name: String,
+    pub chapter_index: usize,
+    pub chapter_no: u32,
+    pub verse_number: u32,
+    pub text: String,
 }
 
 /// Convert a rusqlite error into our command error type (a plain `String`).
@@ -526,6 +561,63 @@ fn snippet_around(text: &str, needle_lower: &str) -> Option<String> {
     Some(out)
 }
 
+/// Deterministic daily pick: the same verse is returned all day, advancing one
+/// verse per calendar day (seeded by days-since-epoch). Returned from the first
+/// Bible in the library; `None` when there is no Bible or its file cannot be parsed.
+#[tauri::command]
+pub fn daily_verse(state: State<'_, AppState>) -> Result<Option<DailyVerse>, String> {
+    let conn = state.db.lock();
+    let row: Result<(i64, String, String), _> = conn.query_row(
+        "SELECT id, file_path, title FROM books WHERE category = 'Bibles' ORDER BY id LIMIT 1",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    );
+    drop(conn);
+    let Ok((book_id, file_path, book_title)) = row else {
+        return Ok(None);
+    };
+
+    let Some(books) = bible_model(&state, book_id, &file_path) else {
+        return Ok(None);
+    };
+    if books.is_empty() {
+        return Ok(None);
+    }
+
+    // Flatten every verse into candidates with the FLAT reader index,
+    // matching get_chapters / get_bible_toc.
+    let mut candidates: Vec<(usize, String, u32, u32, String)> = Vec::new();
+    let mut flat_index = 0usize;
+    for b in &books {
+        for ch in &b.chapters {
+            for v in &ch.verses {
+                candidates.push((flat_index, b.name.clone(), ch.chapter_no, v.number, v.text.clone()));
+            }
+            flat_index += 1;
+        }
+    }
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+
+    // One deterministic pick per day (days-since-epoch as the seed).
+    let days = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        / 86_400;
+    let (flat_idx, book_name, chapter_no, verse_number, text) = &candidates[(days as usize) % candidates.len()];
+    Ok(Some(DailyVerse {
+        book_id,
+        book_title,
+        book_name: book_name.clone(),
+        chapter_index: *flat_idx,
+        chapter_no: *chapter_no,
+        verse_number: *verse_number,
+        text: text.clone(),
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Reader (chapters + chapter HTML)
 // ---------------------------------------------------------------------------
@@ -746,6 +838,90 @@ pub fn list_bookmarks(state: State<'_, AppState>, book_id: i64) -> Result<Vec<Bo
 pub fn delete_bookmark(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let conn = state.db.lock();
     conn.execute("DELETE FROM bookmarks WHERE id = ?", [id]).map_err(db_err)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Highlights & notes
+// ---------------------------------------------------------------------------
+
+fn map_highlight_row(r: &rusqlite::Row) -> rusqlite::Result<HighlightRow> {
+    Ok(HighlightRow {
+        id: r.get(0)?,
+        book_id: r.get(1)?,
+        chapter_index: r.get(2)?,
+        scroll_offset: r.get(3)?,
+        text: r.get(4)?,
+        verse_number: r.get(5)?,
+        created_at: r.get(6)?,
+    })
+}
+
+fn map_note_row(r: &rusqlite::Row) -> rusqlite::Result<NoteRow> {
+    Ok(NoteRow {
+        id: r.get(0)?,
+        book_id: r.get(1)?,
+        chapter_index: r.get(2)?,
+        scroll_offset: r.get(3)?,
+        text: r.get(4)?,
+        verse_number: r.get(5)?,
+        created_at: r.get(6)?,
+    })
+}
+
+#[tauri::command]
+pub fn add_highlight(state: State<'_, AppState>, book_id: i64, chapter_index: i32, scroll_offset: f64, text: String, verse_number: Option<i32>) -> Result<HighlightRow, String> {
+    let conn = state.db.lock();
+    conn.execute(
+        "INSERT INTO highlights (book_id, chapter_index, scroll_offset, text, verse_number) VALUES (?, ?, ?, ?, ?)",
+        (book_id, chapter_index, scroll_offset, text, verse_number),
+    ).map_err(db_err)?;
+    let id = conn.last_insert_rowid();
+    Ok(conn.query_row("SELECT id, book_id, chapter_index, scroll_offset, text, verse_number, created_at FROM highlights WHERE id = ?", [id], map_highlight_row).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+pub fn list_highlights(state: State<'_, AppState>, book_id: i64) -> Result<Vec<HighlightRow>, String> {
+    let conn = state.db.lock();
+    let mut stmt = conn.prepare("SELECT id, book_id, chapter_index, scroll_offset, text, verse_number, created_at FROM highlights WHERE book_id = ? ORDER BY created_at DESC").map_err(db_err)?;
+    let rows = stmt.query_map([book_id], map_highlight_row).map_err(db_err)?;
+    let mut out = Vec::new();
+    for r in rows { out.push(r.map_err(db_err)?); }
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn delete_highlight(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock();
+    conn.execute("DELETE FROM highlights WHERE id = ?", [id]).map_err(db_err)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn add_note(state: State<'_, AppState>, book_id: i64, chapter_index: i32, scroll_offset: f64, text: String, verse_number: Option<i32>) -> Result<NoteRow, String> {
+    let conn = state.db.lock();
+    conn.execute(
+        "INSERT INTO notes (book_id, chapter_index, scroll_offset, text, verse_number) VALUES (?, ?, ?, ?, ?)",
+        (book_id, chapter_index, scroll_offset, text, verse_number),
+    ).map_err(db_err)?;
+    let id = conn.last_insert_rowid();
+    Ok(conn.query_row("SELECT id, book_id, chapter_index, scroll_offset, text, verse_number, created_at FROM notes WHERE id = ?", [id], map_note_row).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+pub fn list_notes(state: State<'_, AppState>, book_id: i64) -> Result<Vec<NoteRow>, String> {
+    let conn = state.db.lock();
+    let mut stmt = conn.prepare("SELECT id, book_id, chapter_index, scroll_offset, text, verse_number, created_at FROM notes WHERE book_id = ? ORDER BY created_at DESC").map_err(db_err)?;
+    let rows = stmt.query_map([book_id], map_note_row).map_err(db_err)?;
+    let mut out = Vec::new();
+    for r in rows { out.push(r.map_err(db_err)?); }
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn delete_note(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock();
+    conn.execute("DELETE FROM notes WHERE id = ?", [id]).map_err(db_err)?;
     Ok(())
 }
 

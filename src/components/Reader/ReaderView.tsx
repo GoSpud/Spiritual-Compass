@@ -5,6 +5,7 @@ import { useTheme } from "../../theme/ThemeProvider";
 import { TEXT_COLOR_ORDER } from "../../theme/ThemeProvider";
 import type { ThemeName } from "../../theme/ThemeProvider";
 import { BookmarkDrawer } from "./BookmarkDrawer";
+import { NotesDrawer } from "./NotesDrawer";
 import { GoToDrawer } from "./GoToDrawer";
 import type { BibleTocBook } from "./GoToDrawer";
 
@@ -40,10 +41,15 @@ export function ReaderView({ book, initialChapter, onBack }: {
   const [lineHeight, setLineHeight] = useState(1.7);
 
   const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [toc, setToc] = useState<BibleTocBook[] | null>(null);
   // Verse to scroll to once the current chapter HTML is in the DOM.
   const [pendingVerse, setPendingVerse] = useState<number | null>(null);
+  // Remembered page selection (text + verse) for highlighting.
+  const selectionRef = useRef<{ text: string; verse: number | null } | null>(null);
+  // Scroll offset to apply once a cross-chapter jump target renders.
+  const pendingScrollRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const restoreDoneRef = useRef(false);
   // Saved position from the mount effect, applied by the restore effect once
@@ -109,6 +115,37 @@ export function ReaderView({ book, initialChapter, onBack }: {
     return () => window.removeEventListener("mousedown", onMouseDown);
   }, [onBack]);
 
+  // Remember page selections for highlighting (only when the selection is inside the reader).
+  useEffect(() => {
+    function onSelectionChange() {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) return;
+      const text = sel.toString().trim();
+      if (!text) return;
+      if (!scrollRef.current?.contains(sel.anchorNode)) return;
+      let verse: number | null = null;
+      let node: Node | null = sel.anchorNode;
+      while (node) {
+        if (node instanceof Element) {
+          const v = node.closest("[data-verse]");
+          if (v) {
+            verse = Number(v.getAttribute("data-verse"));
+            break;
+          }
+        }
+        node = node.parentNode;
+      }
+      selectionRef.current = { text, verse };
+    }
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => document.removeEventListener("selectionchange", onSelectionChange);
+  }, []);
+
+  // Forget any remembered selection when the chapter changes.
+  useEffect(() => {
+    selectionRef.current = null;
+  }, [chapterIndex]);
+
   // Load chapter HTML whenever the index changes (served from cache when possible).
   useEffect(() => {
     if (chapters.length === 0) return;
@@ -156,6 +193,17 @@ export function ReaderView({ book, initialChapter, onBack }: {
     const max = Math.max(0, el.scrollHeight - el.clientHeight);
     el.scrollTop = restore.scrollOffset * max;
   }, [loading, chapterIndex, book.id]);
+
+  // Apply a pending cross-chapter jump offset once the chapter renders.
+  useEffect(() => {
+    if (loading || pendingScrollRef.current == null) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const off = pendingScrollRef.current;
+    pendingScrollRef.current = null;
+    const max = Math.max(1, el.scrollHeight - el.clientHeight);
+    el.scrollTop = off * max;
+  }, [loading, chapterIndex]);
 
   // Persist reader settings.
   useEffect(() => { invoke("set_setting", { key: "fontSize", value: String(fontSize) }).catch(() => {}); }, [fontSize]);
@@ -307,7 +355,7 @@ export function ReaderView({ book, initialChapter, onBack }: {
       {/* Top bar */}
       <header
         className="flex items-center justify-between px-4 py-2.5 border-b themed-surface shrink-0"
-        style={{ borderColor: "var(--border)", background: "var(--bg-elevated)" }}
+        style={{ borderColor: "var(--border)", background: "var(--reader-surface)" }}
       >
         <button onClick={leave} className="text-sm flex items-center gap-1.5 hover:opacity-80 transition-opacity">
           ← Library
@@ -315,9 +363,14 @@ export function ReaderView({ book, initialChapter, onBack }: {
         <div className="flex-1 text-center px-4 min-w-0">
           <p className="text-sm font-medium truncate">{book.title}</p>
         </div>
-        <button onClick={() => setBookmarksOpen(true)} className="text-sm flex items-center gap-1.5 hover:opacity-80 transition-opacity" title="Bookmarks">
-          🔖 Bookmarks
-        </button>
+        <div className="flex items-center gap-4">
+          <button onClick={() => setBookmarksOpen(true)} className="text-sm flex items-center gap-1.5 hover:opacity-80 transition-opacity" title="Bookmarks">
+            🔖 Bookmarks
+          </button>
+          <button onClick={() => setNotesOpen(true)} className="text-sm flex items-center gap-1.5 hover:opacity-80 transition-opacity" title="Notes & highlights">
+            📝 Notes
+          </button>
+        </div>
       </header>
 
       {/* Content — drag left/right to turn the page */}
@@ -325,7 +378,7 @@ export function ReaderView({ book, initialChapter, onBack }: {
         <div
           ref={scrollRef}
           className="h-full overflow-y-auto select-none"
-          style={{ cursor: dragging ? "grabbing" : "grab", touchAction: "pan-y" }}
+          style={{ cursor: dragging ? "grabbing" : "grab", touchAction: "pan-y", background: "var(--reader-bg)" }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -379,7 +432,7 @@ export function ReaderView({ book, initialChapter, onBack }: {
       {/* Bottom toolbar */}
       <footer
         className="flex items-center justify-between gap-2 px-4 py-2.5 border-t themed-surface shrink-0"
-        style={{ borderColor: "var(--border)", background: "var(--bg-elevated)" }}
+        style={{ borderColor: "var(--border)", background: "var(--reader-surface)" }}
       >
         <div className="flex items-center gap-1">
           <ToolButton label="Previous chapter" disabled={chapterIndex === 0} onClick={() => go(-1)}>←</ToolButton>
@@ -426,6 +479,30 @@ export function ReaderView({ book, initialChapter, onBack }: {
           el.scrollTop = off * max;
         });
       }} />
+      <NotesDrawer
+        bookId={book.id}
+        open={notesOpen}
+        onClose={() => setNotesOpen(false)}
+        chapterIndex={chapterIndex}
+        getScrollOffset={scrollFraction}
+        getSelection={() => selectionRef.current}
+        clearSelection={() => { selectionRef.current = null; }}
+        onJump={(ch, off, verse) => {
+          if (ch !== chapterIndex) setChapterIndex(ch);
+          if (verse != null) {
+            setPendingVerse(verse);
+          } else if (ch === chapterIndex) {
+            requestAnimationFrame(() => {
+              const el = scrollRef.current;
+              if (!el) return;
+              const max = Math.max(1, el.scrollHeight - el.clientHeight);
+              el.scrollTop = off * max;
+            });
+          } else {
+            pendingScrollRef.current = off;
+          }
+        }}
+      />
     </div>
   );
 }

@@ -46,6 +46,26 @@ impl Db {
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS highlights (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                chapter_index INTEGER NOT NULL,
+                scroll_offset REAL NOT NULL DEFAULT 0.0,
+                text TEXT NOT NULL DEFAULT '',
+                verse_number INTEGER,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                chapter_index INTEGER NOT NULL,
+                scroll_offset REAL NOT NULL DEFAULT 0.0,
+                text TEXT NOT NULL,
+                verse_number INTEGER,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS book_chapters (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
@@ -54,6 +74,10 @@ impl Db {
             );
 
             CREATE INDEX IF NOT EXISTS idx_book_chapters_book ON book_chapters(book_id);
+
+            CREATE INDEX IF NOT EXISTS idx_highlights_book ON highlights(book_id);
+
+            CREATE INDEX IF NOT EXISTS idx_notes_book ON notes(book_id);
 
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,

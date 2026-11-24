@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { BookWithProgress, Category, SearchHit } from "../../types";
-import { CATEGORIES } from "../../types";
+import type { BookWithProgress, Category, SearchHit, DailyVerse } from "../../types";
+import { CATEGORIES, categoryLabel } from "../../types";
 import { BookCard } from "./BookCard";
 import { ImportDialog } from "./ImportDialog";
 import { useTheme } from "../../theme/ThemeProvider";
 
-type Filter = "All Books" | Category;
+type Filter = Category;
 
-const FILTERS: Filter[] = ["All Books", ...CATEGORIES];
+const FILTERS: Filter[] = [...CATEGORIES];
+
+const FILTER_ICONS: Record<Filter, string> = {
+  "EGW Library": "📖",
+  "Devotionals": "🕯️",
+  "Biographies": "👤",
+  "Bibles": "✝️",
+};
+
+// Books per shelf row — each row is rendered as books standing on a plank.
+const PER_SHELF = 6;
 
 export function LibraryView({ onOpenBook, onOpenAt }: {
   onOpenBook: (b: BookWithProgress) => void;
@@ -17,7 +27,7 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
 }) {
   const { theme, setTheme } = useTheme();
   const [books, setBooks] = useState<BookWithProgress[]>([]);
-  const [filter, setFilter] = useState<Filter>("All Books");
+  const [filter, setFilter] = useState<Filter>("EGW Library");
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
 
@@ -28,19 +38,54 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
   // Full-text search results (null = not currently searching).
   const [hits, setHits] = useState<SearchHit[] | null>(null);
 
+  // Last-read book id (from settings KV) — drives the "Continue reading" card.
+  const [lastReadId, setLastReadId] = useState<number | null>(null);
+
+  // Today's daily verse (from the backend deterministic pick).
+  const [daily, setDaily] = useState<DailyVerse | null>(null);
+
   const isSearching = search.trim().length > 0;
 
   const load = useCallback(async () => {
     try {
-      const cat = filter === "All Books" ? undefined : filter;
-      const rows: BookWithProgress[] = await invoke("list_books", { category: cat, search: null });
+      // Load every book so sidebar filtering and full-text search (which spans
+      // all categories) keep working; the visible grid filters by category.
+      const rows: BookWithProgress[] = await invoke("list_books", { category: undefined, search: null });
       setBooks(rows);
     } catch (e) {
       console.error("failed to list books", e);
     }
-  }, [filter]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load the last-read book id once on mount.
+  useEffect(() => {
+    invoke<string | null>("get_setting", { key: "lastBookId" })
+      .then((v) => {
+        const n = v ? parseInt(v, 10) : NaN;
+        setLastReadId(Number.isFinite(n) ? n : null);
+      })
+      .catch(() => setLastReadId(null));
+  }, []);
+
+  // Fetch today's daily verse once on mount.
+  useEffect(() => {
+    invoke<DailyVerse | null>("daily_verse")
+      .then(setDaily)
+      .catch(() => setDaily(null));
+  }, []);
+
+  // If the last-read book was deleted, clear the setting.
+  useEffect(() => {
+    if (lastReadId == null || books.length === 0) return;
+    if (!books.some((b) => b.id === lastReadId)) {
+      invoke("set_setting", { key: "lastBookId", value: "" }).catch(() => {});
+      setLastReadId(null);
+    }
+  }, [books, lastReadId]);
+
+  const lastRead = lastReadId != null ? books.find((b) => b.id === lastReadId) ?? null : null;
 
   // Run full-text search as the user types (debounced).
   useEffect(() => {
@@ -60,9 +105,18 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
   }, [search, isSearching]);
 
   const visible = useMemo(
-    () => books.filter((b) => filter === "All Books" || b.category === filter),
+    () => books.filter((b) => b.category === filter),
     [books, filter],
   );
+
+  // Chunk the visible books into shelf rows (one row per wooden plank).
+  const shelfRows = useMemo(() => {
+    const rows: BookWithProgress[][] = [];
+    for (let i = 0; i < visible.length; i += PER_SHELF) {
+      rows.push(visible.slice(i, i + PER_SHELF));
+    }
+    return rows;
+  }, [visible]);
 
   async function pickFiles() {
     const selected: string | string[] | null = await open({
@@ -95,17 +149,20 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
     <div className="flex h-full">
       {/* Sidebar */}
       <aside className="w-64 shrink-0 border-r themed-surface flex flex-col" style={{ borderColor: "var(--border)" }}>
-        <div className="p-4 space-y-1">
+        <div className="p-4 space-y-2">
+          <div className="px-2 text-[11px] font-semibold uppercase tracking-wider opacity-50">
+            Categories
+          </div>
           {FILTERS.map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                filter === f ? "font-medium" : "hover:bg-black/5 dark:hover:bg-white/10"
-              }`}
-              style={filter === f ? { background: "var(--accent-soft)", color: "var(--accent)" } : undefined}
+              className={`filter-btn ${filter === f ? "is-active" : ""}`}
+              aria-pressed={filter === f}
             >
-              {f}
+              <span className="filter-icon" aria-hidden="true">{FILTER_ICONS[f]}</span>
+              <span className="flex-1">{categoryLabel(f)}</span>
+              {filter === f && <span className="filter-chevron" aria-hidden="true">›</span>}
             </button>
           ))}
         </div>
@@ -135,7 +192,7 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
       {/* Main */}
       <main className="flex-1 overflow-y-auto">
         <header className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 themed-surface" style={{ background: "var(--bg)" }}>
-          <h1 className="text-lg font-semibold">{filter}</h1>
+          <h1 className="text-lg font-semibold">{categoryLabel(filter)}</h1>
           <button
             onClick={pickFiles}
             disabled={importing || pendingPaths !== null}
@@ -147,6 +204,42 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
         </header>
 
         <div className="px-6 pb-2">
+          {!isSearching && daily && (() => {
+            const dvBook = books.find((b) => b.id === daily.book_id);
+            if (!dvBook) return null;
+            return (
+              <button
+                onClick={() => (onOpenAt ? onOpenAt(dvBook, daily.chapter_index) : onOpenBook(dvBook))}
+                className="devotion-card themed-surface"
+                title={`Today's verse — ${daily.book_name} ${daily.chapter_no}:${daily.verse_number}`}
+              >
+                <span className="devotion-card-icon" aria-hidden="true">✝️</span>
+                <span className="devotion-card-body">
+                  <span className="devotion-card-eyebrow">Daily verse</span>
+                  <span className="devotion-card-text">{daily.text}</span>
+                  <span className="devotion-card-ref">
+                    {daily.book_name} {daily.chapter_no}:{daily.verse_number}
+                  </span>
+                </span>
+              </button>
+            );
+          })()}
+          {!isSearching && lastRead && (
+            <button
+              onClick={() => onOpenBook(lastRead)}
+              className="continue-card themed-surface"
+              title={`Continue reading "${lastRead.title}"`}
+            >
+              <span className="continue-card-icon" aria-hidden="true">📖</span>
+              <span className="continue-card-body">
+                <span className="continue-card-eyebrow">Continue reading</span>
+                <span className="continue-card-title" title={lastRead.title}>{lastRead.title}</span>
+              </span>
+              {lastRead.percent != null && lastRead.percent > 0 && (
+                <span className="continue-card-progress">{Math.round(lastRead.percent)}%</span>
+              )}
+            </button>
+          )}
           {isSearching ? (
             hits === null ? (
               <p className="text-sm py-10 text-center" style={{ color: "var(--text-muted)" }}>Searching…</p>
@@ -158,9 +251,24 @@ export function LibraryView({ onOpenBook, onOpenAt }: {
           ) : visible.length === 0 ? (
             <EmptyState filter={filter} onImport={pickFiles} />
           ) : (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
-              {visible.map((b) => (
-                <BookCard key={b.id} book={b} onOpen={() => onOpenBook(b)} onDeleted={load} />
+            <div className="space-y-7 pb-8">
+              {shelfRows.map((row, i) => (
+                <section
+                  key={i}
+                  className={row.length < PER_SHELF ? "shelf-section is-short" : "shelf-section"}
+                >
+                  <div className="shelf-row">
+                    {row.map((b) => (
+                      <BookCard key={b.id} book={b} onOpen={() => onOpenBook(b)} onDeleted={load} />
+                    ))}
+                  </div>
+                  <div className="shelf-plank" aria-hidden="true" />
+                  <div className="shelf-captions">
+                    {row.map((b) => (
+                      <p key={b.id} className="shelf-caption" title={b.title}>{b.title}</p>
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           )}
@@ -206,7 +314,7 @@ function CategoryPicker({ count, category, setCategory, onConfirm, onCancel }: {
               }`}
               style={category === c ? { background: "var(--accent-soft)", color: "var(--accent)" } : undefined}
             >
-              {c}
+              {categoryLabel(c)}
             </button>
           ))}
         </div>
@@ -219,7 +327,7 @@ function CategoryPicker({ count, category, setCategory, onConfirm, onCancel }: {
             className="rounded-lg px-4 py-1.5 text-sm font-medium"
             style={{ background: "var(--accent)", color: "#1c1a17" }}
           >
-            Import into {category}
+            Import into {categoryLabel(category)}
           </button>
         </div>
       </div>
@@ -228,7 +336,7 @@ function CategoryPicker({ count, category, setCategory, onConfirm, onCancel }: {
 }
 
 function EmptyState({ filter, onImport, noResults }: { filter: Filter; onImport: () => void; noResults?: string }) {
-  const label = filter === "All Books" ? "books" : filter.toLowerCase();
+  const label = categoryLabel(filter).toLowerCase();
   if (noResults) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">

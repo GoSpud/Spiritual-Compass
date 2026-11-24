@@ -1,13 +1,22 @@
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import type { BookWithProgress, Category } from "../../types";
-import { CATEGORIES } from "../../types";
+import { CATEGORIES, categoryLabel } from "../../types";
+
+// Deterministic pseudo-random tilt so each book sits slightly differently on
+// the shelf (a small lay-back fan, no layout churn).
+function tiltFor(id: number): number {
+  const x = Math.sin(id * 12.9898) * 43758.5453;
+  const frac = x - Math.floor(x);
+  return (frac - 0.5) * 2.4; // ~ -1.2deg .. +1.2deg
+}
 
 export function BookCard({ book, onOpen, onDeleted }: { book: BookWithProgress; onOpen: () => void; onDeleted?: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close the card menu when clicking elsewhere.
+  // Close the menu when clicking anywhere else.
   useEffect(() => {
     if (!menuOpen) return;
     function onClick(e: MouseEvent) {
@@ -30,76 +39,66 @@ export function BookCard({ book, onOpen, onDeleted }: { book: BookWithProgress; 
 
   // convertFileSrc turns a local path into an asset-protocol URL the webview can load.
   const coverSrc = book.cover_path ? convertFileSrc(book.cover_path) : null;
+  const tilt = tiltFor(book.id);
+  const pct = Math.round(book.percent ?? 0);
 
   return (
-    <div className="group relative">
+    <div className="shelf-slot">
       <button
+        type="button"
         onClick={onOpen}
-        className="w-full text-left rounded-xl overflow-hidden themed-surface transition-transform group-hover:-translate-y-0.5"
-        style={{ background: "var(--surface)", boxShadow: "var(--shadow)" }}
+        className="shelf-book"
+        style={{ "--tilt": `${tilt}deg` } as CSSProperties}
+        title={book.title}
+        aria-label={`Open ${book.title}`}
       >
-        {/* Cover */}
-        <div className="aspect-[2/3] w-full bg-black/10 flex items-center justify-center overflow-hidden">
+        <div className="shelf-cover">
           {coverSrc ? (
             <img src={coverSrc} alt="" className="h-full w-full object-cover" />
           ) : (
-            <span className="text-4xl opacity-50">📕</span>
+            <span className="shelf-fallback" aria-hidden="true">📕</span>
           )}
-        </div>
-
-        {/* Meta */}
-        <div className="p-2.5 space-y-1">
-          <p className="text-sm font-medium leading-tight line-clamp-2">{book.title}</p>
-          {book.author && (
-            <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{book.author}</p>
-          )}
-          <span
-            className="inline-block text-[10px] px-1.5 py-0.5 rounded font-medium"
-            style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
-          >
-            {book.category}
+          <span className="shelf-spine" aria-hidden="true" />
+          <span className="shelf-progress" aria-hidden="true">
+            <span style={{ height: `${pct}%` }} />
           </span>
-
-          {/* Progress */}
-          <div className="h-1 w-full rounded-full overflow-hidden mt-1.5" style={{ background: "var(--border)" }}>
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${Math.round(book.percent ?? 0)}%`, background: "var(--accent)" }}
-            />
-          </div>
+          {pct > 0 && <span className="shelf-pct">{pct}%</span>}
         </div>
       </button>
 
-      {/* Card menu */}
-      <div ref={menuRef} className="absolute top-2 right-2">
+      {/* ⋯ menu — sibling of the cover so it stays stable while the book tilts */}
+      <div ref={menuRef} className={`shelf-menu ${menuOpen ? "is-open" : ""}`}>
         <button
+          type="button"
           onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-sm themed-surface"
-          style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
-          aria-label="Book options"
+          className="shelf-menu-btn"
+          aria-label={`Options for ${book.title}`}
+          aria-expanded={menuOpen}
         >
           ⋯
         </button>
 
         {menuOpen && (
-          <div
-            className="absolute right-0 mt-1 w-44 rounded-lg py-1 themed-surface z-20"
-            style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", boxShadow: "var(--shadow)" }}
-          >
+          <div className="shelf-menu-popover">
             <p className="px-3 py-1 text-[11px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
               Move to…
             </p>
             {CATEGORIES.map((c) => (
               <button
                 key={c}
+                type="button"
                 onClick={() => changeCategory(c)}
                 className="w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/10"
               >
-                {c}
+                {categoryLabel(c)}
               </button>
             ))}
             <div className="h-px my-1" style={{ background: "var(--border)" }} />
-            <button onClick={remove} className="w-full text-left px-3 py-1.5 text-sm text-red-500 hover:bg-black/5 dark:hover:bg-white/10">
+            <button
+              type="button"
+              onClick={remove}
+              className="w-full text-left px-3 py-1.5 text-sm text-red-500 hover:bg-black/5 dark:hover:bg-white/10"
+            >
               Remove from library
             </button>
           </div>

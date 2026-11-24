@@ -15,6 +15,19 @@
   --text: #1c1a17;
   --text-muted: #6b675f;
   --shadow: 0 1px 2px rgba(20, 18, 14, 0.06), 0 8px 24px rgba(20, 18, 14, 0.08);
+
+  /* Wooden shelf plank */
+  --plank-hi: #a4713f;
+  --plank-mid: #7c542f;
+  --plank-lo: #54351b;
+
+  /* LED strip under the shelf — bright warm tint */
+  --led-strip: #ffdf8e;
+  --led-glow: rgba(222, 158, 52, 0.6);
+
+  /* Reader chrome + page (distinct from app chrome) */
+  --reader-bg: #fbf9f4;
+  --reader-surface: #fffefb;
 }
 
 [data-theme="dark"] {
@@ -25,6 +38,19 @@
   --text: #ecebe6;
   --text-muted: #9a978f;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px rgba(0, 0, 0, 0.5);
+
+  /* Wooden shelf plank */
+  --plank-hi: #6d4c2c;
+  --plank-mid: #4e3520;
+  --plank-lo: #2e2014;
+
+  /* LED strip under the shelf — soft warm white, less yellow */
+  --led-strip: #ffe9c9;
+  --led-glow: rgba(255, 224, 178, 0.34);
+
+  /* Reader chrome + page */
+  --reader-bg: #14161b;
+  --reader-surface: #1a1d24;
 }
 
 [data-theme="reading"] {
@@ -35,6 +61,19 @@
   --text: #4a3521;
   --text-muted: #8a6d4b;
   --shadow: 0 1px 2px rgba(92, 64, 31, 0.10), 0 8px 24px rgba(92, 64, 31, 0.12);
+
+  /* Wooden shelf plank */
+  --plank-hi: #96683e;
+  --plank-mid: #715031;
+  --plank-lo: #46301c;
+
+  /* LED strip under the shelf — bright warm amber glow */
+  --led-strip: #ffd678;
+  --led-glow: rgba(214, 136, 36, 0.58);
+
+  /* Reader chrome + page — warm parchment paper */
+  --reader-bg: #f3ead7;
+  --reader-surface: #f8f0e0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -104,7 +143,7 @@ body {
   overflow: hidden;
   z-index: 10;
   pointer-events: none;
-  background: var(--bg); /* opaque so the base page never peeks through */
+  background: var(--reader-bg); /* opaque so the base page never peeks through */
 }
 .slide-track {
   display: flex;
@@ -116,7 +155,7 @@ body {
   width: 50%;              /* one full reading column, = viewport width */
   min-height: 100%;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--reader-bg);
 }
 /* The track is two pages wide (200%), so one page = -50%, not -100%. */
 @keyframes slideNext {
@@ -145,3 +184,421 @@ body {
 .themed-surface {
   transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
 }
+
+/* Sidebar category filter buttons */
+.filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+.filter-btn:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.10);
+}
+.filter-btn:active {
+  transform: translateY(0);
+}
+.filter-btn.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+.filter-btn .filter-icon {
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.filter-btn .filter-chevron {
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Shelf library — books leaning back on a wooden plank               */
+/* ------------------------------------------------------------------ */
+/* Shelf rows — books lean back on a wooden plank */
+.shelf-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  --shelf-book-w: clamp(104px, 13.5vw, 177px);
+}
+
+.shelf-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  width: 100%;
+  padding: 0 6px;
+}
+
+.shelf-slot {
+  position: relative;
+  width: var(--shelf-book-w);
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.shelf-book {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  perspective: 640px;
+  transform-origin: 50% 100%;
+  transform: rotateX(13deg) rotateZ(var(--tilt, 0deg));
+  transition: transform 220ms ease, filter 220ms ease;
+  filter: drop-shadow(0 10px 10px rgba(0, 0, 0, 0.28));
+}
+
+.shelf-cover {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #2a2118;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 0 0 2px rgba(0, 0, 0, 0.25);
+}
+
+.shelf-cover img {
+  display: block;
+}
+
+.shelf-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.7rem;
+}
+
+/* Spine highlight — left edge catches the light */
+.shelf-spine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 12%;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.03) 45%, rgba(0, 0, 0, 0.28) 100%);
+  pointer-events: none;
+}
+
+/* Reading-progress ribbon along the spine */
+.shelf-progress {
+  position: absolute;
+  top: 8%;
+  bottom: 8%;
+  left: 6px;
+  width: 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.shelf-progress > span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: block;
+  background: var(--accent);
+  border-radius: 3px 3px 0 0;
+}
+
+.shelf-pct {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: rgba(10, 8, 6, 0.72);
+  color: #ffd87a;
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+/* Plank — a full-width wooden shelf the books rest on */
+.shelf-plank {
+  position: relative;
+  width: 100%;
+  height: 13px;
+  margin: 0 -6px;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(180deg, var(--plank-hi) 0%, var(--plank-mid) 45%, var(--plank-lo) 100%);
+  box-shadow: 0 14px 18px -8px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* LED strip embedded in the middle of the plank — light spills down onto the captions */
+.shelf-plank::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 4%;
+  right: 4%;
+  height: 3px;
+  border-radius: 2px;
+  transform: translateY(-50%);
+  background: var(--led-strip);
+  box-shadow:
+    0 0 10px 2px var(--led-glow),
+    0 10px 28px 10px var(--led-glow);
+  pointer-events: none;
+}
+
+/* Short rows (fewer than 6 books) hug the left edge, keeping the same
+   column pitch as full rows so books line up across the shelf */
+.shelf-section.is-short .shelf-row,
+.shelf-section.is-short .shelf-captions {
+  justify-content: flex-start;
+  gap: calc((100% - 12px - 6 * var(--shelf-book-w)) / 5);
+}
+
+/* Captions directly under the plank, aligned to the books */
+.shelf-captions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 6px 0;
+  width: 100%;
+}
+
+.shelf-caption {
+  width: var(--shelf-book-w);
+  flex-shrink: 0;
+  margin: 0;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* ⋯ menu — hidden until hover/focus/open, like a brass knob on the shelf */
+.shelf-menu {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 5;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.shelf-slot:hover .shelf-menu,
+.shelf-slot:focus-within .shelf-menu,
+.shelf-menu.is-open {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.shelf-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(12, 10, 9, 0.6);
+  color: #f0ede6;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(3px);
+}
+
+.shelf-menu-btn:hover {
+  background: rgba(12, 10, 9, 0.85);
+}
+
+.shelf-menu-popover {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  min-width: 168px;
+  padding: 6px 0;
+  border-radius: 0.75rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+
+.shelf-menu-popover button {
+  color: var(--text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+/* Lift the book out of the shelf on hover / focus */
+.shelf-slot:hover .shelf-book,
+.shelf-book:focus-visible {
+  transform: rotateX(2deg) rotateZ(0deg) scale(1.07);
+  filter: drop-shadow(0 18px 16px rgba(0, 0, 0, 0.38));
+  z-index: 6;
+}
+
+.shelf-book:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.shelf-slot:hover {
+  z-index: 6;
+}
+
+/* Narrower windows — same clamped widths, tighter captions */
+@media (max-width: 1080px) {
+  .shelf-caption {
+    font-size: 0.66rem;
+  }
+}
+
+/* Continue-reading card */
+.continue-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 0.85rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+.continue-card:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+.continue-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.continue-card-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+.continue-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+}
+.continue-card-eyebrow {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.continue-card-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.continue-card-progress {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+/* Daily verse / devotion card */
+.devotion-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 0.85rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+.devotion-card:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+.devotion-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.devotion-card-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+.devotion-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1;
+}
+.devotion-card-eyebrow {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.devotion-card-text {
+  font-family: "Source Serif 4", Georgia, serif;
+  font-style: italic;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.devotion-card-ref {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
